@@ -1,6 +1,10 @@
 #include "op.hpp"
 
+#include "../../core/llaisys_core.hpp"
 #include "../../utils.hpp"
+#ifdef ENABLE_NVIDIA_API
+#include "../nvidia/ops_nvidia.cuh"
+#endif
 
 #include <cmath>
 
@@ -36,17 +40,27 @@ void rms_norm(tensor_t out, tensor_t in, tensor_t weight, float eps) {
     CHECK_SAME_SHAPE(out->shape(), in->shape());
     CHECK_ARGUMENT(weight->shape()[0] == in->shape()[1], "RMSNorm weight shape mismatch.");
     ASSERT(out->isContiguous() && in->isContiguous() && weight->isContiguous(), "RMSNorm: all tensors must be contiguous.");
-    CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "RMSNorm currently only supports CPU tensors.");
+    if (out->deviceType() == LLAISYS_DEVICE_CPU) {
+        switch (out->dtype()) {
+        case LLAISYS_DTYPE_F32:
+            return rms_norm_cpu<float>(out, in, weight, eps);
+        case LLAISYS_DTYPE_F16:
+            return rms_norm_cpu<fp16_t>(out, in, weight, eps);
+        case LLAISYS_DTYPE_BF16:
+            return rms_norm_cpu<bf16_t>(out, in, weight, eps);
+        default:
+            EXCEPTION_UNSUPPORTED_DATATYPE(out->dtype());
+        }
+    }
 
-    switch (out->dtype()) {
-    case LLAISYS_DTYPE_F32:
-        return rms_norm_cpu<float>(out, in, weight, eps);
-    case LLAISYS_DTYPE_F16:
-        return rms_norm_cpu<fp16_t>(out, in, weight, eps);
-    case LLAISYS_DTYPE_BF16:
-        return rms_norm_cpu<bf16_t>(out, in, weight, eps);
+    llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
+    switch (out->deviceType()) {
+#ifdef ENABLE_NVIDIA_API
+    case LLAISYS_DEVICE_NVIDIA:
+        return nvidia::rms_norm(out->data(), in->data(), weight->data(), out->dtype(), in->shape()[0], in->shape()[1], eps, llaisys::core::context().runtime().stream());
+#endif
     default:
-        EXCEPTION_UNSUPPORTED_DATATYPE(out->dtype());
+        EXCEPTION_UNSUPPORTED_DEVICE;
     }
 }
 } // namespace llaisys::ops

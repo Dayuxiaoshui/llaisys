@@ -1,6 +1,10 @@
 #include "op.hpp"
 
+#include "../../core/llaisys_core.hpp"
 #include "../../utils.hpp"
+#ifdef ENABLE_NVIDIA_API
+#include "../nvidia/ops_nvidia.cuh"
+#endif
 
 #include <limits>
 
@@ -36,17 +40,27 @@ void argmax(tensor_t max_idx, tensor_t max_val, tensor_t vals) {
     CHECK_ARGUMENT(max_idx->dtype() == LLAISYS_DTYPE_I64, "Argmax index output must be int64.");
     CHECK_ARGUMENT(max_val->dtype() == vals->dtype(), "Argmax value output dtype must match input dtype.");
     ASSERT(max_idx->isContiguous() && max_val->isContiguous() && vals->isContiguous(), "Argmax: all tensors must be contiguous.");
-    CHECK_ARGUMENT(vals->deviceType() == LLAISYS_DEVICE_CPU, "Argmax currently only supports CPU tensors.");
+    if (vals->deviceType() == LLAISYS_DEVICE_CPU) {
+        switch (vals->dtype()) {
+        case LLAISYS_DTYPE_F32:
+            return argmax_cpu<float>(max_idx, max_val, vals);
+        case LLAISYS_DTYPE_F16:
+            return argmax_cpu<fp16_t>(max_idx, max_val, vals);
+        case LLAISYS_DTYPE_BF16:
+            return argmax_cpu<bf16_t>(max_idx, max_val, vals);
+        default:
+            EXCEPTION_UNSUPPORTED_DATATYPE(vals->dtype());
+        }
+    }
 
-    switch (vals->dtype()) {
-    case LLAISYS_DTYPE_F32:
-        return argmax_cpu<float>(max_idx, max_val, vals);
-    case LLAISYS_DTYPE_F16:
-        return argmax_cpu<fp16_t>(max_idx, max_val, vals);
-    case LLAISYS_DTYPE_BF16:
-        return argmax_cpu<bf16_t>(max_idx, max_val, vals);
+    llaisys::core::context().setDevice(vals->deviceType(), vals->deviceId());
+    switch (vals->deviceType()) {
+#ifdef ENABLE_NVIDIA_API
+    case LLAISYS_DEVICE_NVIDIA:
+        return nvidia::argmax(max_idx->data(), max_val->data(), vals->data(), vals->dtype(), vals->numel(), llaisys::core::context().runtime().stream());
+#endif
     default:
-        EXCEPTION_UNSUPPORTED_DATATYPE(vals->dtype());
+        EXCEPTION_UNSUPPORTED_DEVICE;
     }
 }
 } // namespace llaisys::ops

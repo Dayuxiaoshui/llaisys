@@ -304,12 +304,20 @@ tensor_t Tensor::to(llaisysDeviceType_t device_type, int device) const {
 
     auto src = isContiguous() ? std::shared_ptr<Tensor>(new Tensor(_meta, _storage, _offset)) : contiguous();
     auto out = create(_meta.shape, _meta.dtype, device_type, target_device);
+    llaisysMemcpyKind_t copy_kind = LLAISYS_MEMCPY_D2D;
+    if (src->deviceType() == LLAISYS_DEVICE_CPU && out->deviceType() != LLAISYS_DEVICE_CPU) {
+        copy_kind = LLAISYS_MEMCPY_H2D;
+    } else if (src->deviceType() != LLAISYS_DEVICE_CPU && out->deviceType() == LLAISYS_DEVICE_CPU) {
+        copy_kind = LLAISYS_MEMCPY_D2H;
+    } else if (src->deviceType() == LLAISYS_DEVICE_CPU && out->deviceType() == LLAISYS_DEVICE_CPU) {
+        copy_kind = LLAISYS_MEMCPY_H2H;
+    }
     core::context().setDevice(device_type, target_device);
     core::context().runtime().api()->memcpy_sync(
         out->data(),
         src->data(),
         numel() * elementSize(),
-        LLAISYS_MEMCPY_D2D);
+        copy_kind);
     return out;
 }
 

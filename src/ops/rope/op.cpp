@@ -1,6 +1,10 @@
 #include "op.hpp"
 
+#include "../../core/llaisys_core.hpp"
 #include "../../utils.hpp"
+#ifdef ENABLE_NVIDIA_API
+#include "../nvidia/ops_nvidia.cuh"
+#endif
 
 #include <cmath>
 
@@ -42,17 +46,27 @@ void rope(tensor_t out, tensor_t in, tensor_t pos_ids, float theta) {
     CHECK_ARGUMENT(out->dtype() == in->dtype(), "RoPE output dtype must match input dtype.");
     CHECK_ARGUMENT(in->shape()[2] % 2 == 0, "RoPE head dimension must be even.");
     ASSERT(out->isContiguous() && in->isContiguous() && pos_ids->isContiguous(), "RoPE: all tensors must be contiguous.");
-    CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "RoPE currently only supports CPU tensors.");
+    if (out->deviceType() == LLAISYS_DEVICE_CPU) {
+        switch (out->dtype()) {
+        case LLAISYS_DTYPE_F32:
+            return rope_cpu<float>(out, in, pos_ids, theta);
+        case LLAISYS_DTYPE_F16:
+            return rope_cpu<fp16_t>(out, in, pos_ids, theta);
+        case LLAISYS_DTYPE_BF16:
+            return rope_cpu<bf16_t>(out, in, pos_ids, theta);
+        default:
+            EXCEPTION_UNSUPPORTED_DATATYPE(out->dtype());
+        }
+    }
 
-    switch (out->dtype()) {
-    case LLAISYS_DTYPE_F32:
-        return rope_cpu<float>(out, in, pos_ids, theta);
-    case LLAISYS_DTYPE_F16:
-        return rope_cpu<fp16_t>(out, in, pos_ids, theta);
-    case LLAISYS_DTYPE_BF16:
-        return rope_cpu<bf16_t>(out, in, pos_ids, theta);
+    llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
+    switch (out->deviceType()) {
+#ifdef ENABLE_NVIDIA_API
+    case LLAISYS_DEVICE_NVIDIA:
+        return nvidia::rope(out->data(), in->data(), pos_ids->data(), out->dtype(), in->shape()[0], in->shape()[1], in->shape()[2], theta, llaisys::core::context().runtime().stream());
+#endif
     default:
-        EXCEPTION_UNSUPPORTED_DATATYPE(out->dtype());
+        EXCEPTION_UNSUPPORTED_DEVICE;
     }
 }
 } // namespace llaisys::ops

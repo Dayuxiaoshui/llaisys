@@ -1,6 +1,10 @@
 #include "op.hpp"
 
+#include "../../core/llaisys_core.hpp"
 #include "../../utils.hpp"
+#ifdef ENABLE_NVIDIA_API
+#include "../nvidia/ops_nvidia.cuh"
+#endif
 
 #include <cmath>
 
@@ -24,17 +28,27 @@ void swiglu(tensor_t out, tensor_t gate, tensor_t up) {
     CHECK_SAME_SHAPE(out->shape(), gate->shape(), up->shape());
     CHECK_SAME_DTYPE(out->dtype(), gate->dtype(), up->dtype());
     ASSERT(out->isContiguous() && gate->isContiguous() && up->isContiguous(), "SwiGLU: all tensors must be contiguous.");
-    CHECK_ARGUMENT(out->deviceType() == LLAISYS_DEVICE_CPU, "SwiGLU currently only supports CPU tensors.");
+    if (out->deviceType() == LLAISYS_DEVICE_CPU) {
+        switch (out->dtype()) {
+        case LLAISYS_DTYPE_F32:
+            return swiglu_cpu<float>(out, gate, up);
+        case LLAISYS_DTYPE_F16:
+            return swiglu_cpu<fp16_t>(out, gate, up);
+        case LLAISYS_DTYPE_BF16:
+            return swiglu_cpu<bf16_t>(out, gate, up);
+        default:
+            EXCEPTION_UNSUPPORTED_DATATYPE(out->dtype());
+        }
+    }
 
-    switch (out->dtype()) {
-    case LLAISYS_DTYPE_F32:
-        return swiglu_cpu<float>(out, gate, up);
-    case LLAISYS_DTYPE_F16:
-        return swiglu_cpu<fp16_t>(out, gate, up);
-    case LLAISYS_DTYPE_BF16:
-        return swiglu_cpu<bf16_t>(out, gate, up);
+    llaisys::core::context().setDevice(out->deviceType(), out->deviceId());
+    switch (out->deviceType()) {
+#ifdef ENABLE_NVIDIA_API
+    case LLAISYS_DEVICE_NVIDIA:
+        return nvidia::swiglu(out->data(), gate->data(), up->data(), out->dtype(), out->numel(), llaisys::core::context().runtime().stream());
+#endif
     default:
-        EXCEPTION_UNSUPPORTED_DATATYPE(out->dtype());
+        EXCEPTION_UNSUPPORTED_DEVICE;
     }
 }
 } // namespace llaisys::ops

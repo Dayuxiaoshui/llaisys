@@ -1,6 +1,10 @@
 #include "op.hpp"
 
+#include "../../core/llaisys_core.hpp"
 #include "../../utils.hpp"
+#ifdef ENABLE_NVIDIA_API
+#include "../nvidia/ops_nvidia.cuh"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -72,17 +76,28 @@ void self_attention(tensor_t attn_val, tensor_t q, tensor_t k, tensor_t v, float
     CHECK_ARGUMENT(q->shape()[1] % k->shape()[1] == 0, "SelfAttention query heads must be divisible by kv heads.");
     CHECK_ARGUMENT(k->shape()[0] >= q->shape()[0], "SelfAttention kv length must be >= query length for causal mask.");
     ASSERT(attn_val->isContiguous() && q->isContiguous() && k->isContiguous() && v->isContiguous(), "SelfAttention: all tensors must be contiguous.");
-    CHECK_ARGUMENT(attn_val->deviceType() == LLAISYS_DEVICE_CPU, "SelfAttention currently only supports CPU tensors.");
+    if (attn_val->deviceType() == LLAISYS_DEVICE_CPU) {
+        switch (attn_val->dtype()) {
+        case LLAISYS_DTYPE_F32:
+            return self_attention_cpu<float>(attn_val, q, k, v, scale);
+        case LLAISYS_DTYPE_F16:
+            return self_attention_cpu<fp16_t>(attn_val, q, k, v, scale);
+        case LLAISYS_DTYPE_BF16:
+            return self_attention_cpu<bf16_t>(attn_val, q, k, v, scale);
+        default:
+            EXCEPTION_UNSUPPORTED_DATATYPE(attn_val->dtype());
+        }
+    }
 
-    switch (attn_val->dtype()) {
-    case LLAISYS_DTYPE_F32:
-        return self_attention_cpu<float>(attn_val, q, k, v, scale);
-    case LLAISYS_DTYPE_F16:
-        return self_attention_cpu<fp16_t>(attn_val, q, k, v, scale);
-    case LLAISYS_DTYPE_BF16:
-        return self_attention_cpu<bf16_t>(attn_val, q, k, v, scale);
+    llaisys::core::context().setDevice(attn_val->deviceType(), attn_val->deviceId());
+    switch (attn_val->deviceType()) {
+#ifdef ENABLE_NVIDIA_API
+    case LLAISYS_DEVICE_NVIDIA:
+        return nvidia::self_attention(
+            attn_val->data(), q->data(), k->data(), v->data(), attn_val->dtype(), q->shape()[0], k->shape()[0], q->shape()[1], k->shape()[1], q->shape()[2], scale, llaisys::core::context().runtime().stream());
+#endif
     default:
-        EXCEPTION_UNSUPPORTED_DATATYPE(attn_val->dtype());
+        EXCEPTION_UNSUPPORTED_DEVICE;
     }
 }
 } // namespace llaisys::ops

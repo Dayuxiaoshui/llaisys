@@ -4,7 +4,7 @@
 
 namespace llaisys::core {
 
-Context::Context() {
+Context::Context() : _current_runtime(nullptr) {
     // All device types, put CPU at the end
     std::vector<llaisysDeviceType_t> device_typs;
     for (int i = 1; i < LLAISYS_DEVICE_TYPE_COUNT; i++) {
@@ -52,7 +52,7 @@ Context::~Context() {
 void Context::setDevice(llaisysDeviceType_t device_type, int device_id) {
     // If doest not match the current runtime.
     if (_current_runtime == nullptr || _current_runtime->deviceType() != device_type || _current_runtime->deviceId() != device_id) {
-        auto runtimes = _runtime_map[device_type];
+        auto &runtimes = _runtime_map[device_type];
         CHECK_ARGUMENT((size_t)device_id < runtimes.size() && device_id >= 0, "invalid device id");
         if (_current_runtime != nullptr) {
             _current_runtime->_deactivate();
