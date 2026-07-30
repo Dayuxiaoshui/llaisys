@@ -18,6 +18,18 @@ if has_config("nv-gpu") then
     includes("xmake/nvidia.lua")
 end
 
+-- METAX --
+option("mx-gpu")
+    set_default(false)
+    set_showmenu(true)
+    set_description("Whether to compile implementations for MetaX GPU")
+option_end()
+
+if has_config("mx-gpu") then
+    add_defines("ENABLE_METAX_API")
+    includes("xmake/metax.lua")
+end
+
 target("llaisys-utils")
     set_kind("static")
 
@@ -39,6 +51,13 @@ target("llaisys-device")
     add_deps("llaisys-device-cpu")
     if has_config("nv-gpu") then
         add_deps("llaisys-device-nvidia")
+    end
+    if has_config("mx-gpu") then
+        add_rules("metax.macac")
+        add_files("src/device/metax/*.mc")
+        add_linkdirs(path.join(os.getenv("MACA_PATH") or "/opt/maca", "lib"), {public = true})
+        add_rpathdirs(path.join(os.getenv("MACA_PATH") or "/opt/maca", "lib"), {public = true})
+        add_links("mcruntime", {public = true})
     end
 
     set_languages("cxx17")
@@ -88,6 +107,13 @@ target("llaisys-ops")
     add_deps("llaisys-ops-cpu")
     if has_config("nv-gpu") then
         add_deps("llaisys-ops-nvidia")
+    end
+    if has_config("mx-gpu") then
+        add_rules("metax.macac")
+        add_files("src/ops/metax/*.mc")
+        add_linkdirs(path.join(os.getenv("MACA_PATH") or "/opt/maca", "lib"), {public = true})
+        add_rpathdirs(path.join(os.getenv("MACA_PATH") or "/opt/maca", "lib"), {public = true})
+        add_links("mcruntime", "mcblas", {public = true})
     end
 
     set_languages("cxx17")
